@@ -14,7 +14,7 @@ Proyek ini mengontrol AC menggunakan ESP8266 dan IR Blaster, dengan antarmuka We
 - ESP8266 (NodeMCU)
 - IR LED
 - Arduino IDE
-- Library: `ESP8266WebServer`, `IRsend`, `WiFiClientSecure`,`ESP8266HTTPClient`, `NTPClient`, `ESP8266WiFi`, `WiFiUdp`, `Timelib`, `ArduinoJson`, `EEPROM`, `LittleFS`, 
+- Library: `ESP8266WebServer`, `IRsend`, `WiFiClientSecure`,`ESP8266HTTPClient`, `NTPClient`, `ESP8266WiFi`, `WiFiUdp`, `Timelib`, `ArduinoJson`, `EEPROM`, `LittleFS`, `Ticker`
 
 ## Cara Pakai
 1. Upload kode ke ESP8266
