@@ -7,14 +7,14 @@ Proyek ini mengontrol AC menggunakan ESP8266 dan IR Blaster, dengan antarmuka We
 ## Fitur
 - Kontrol AC: ON/OFF, Suhu Naik/Turun
 - Akses via Web Browser
-- Timer otomatis ON (06:00) & OFF (22:00)
+- Timer otomatis ON (17:00) & OFF (09:00)
 - Sinkronisasi waktu via NTP (GMT+7)
 
 ## Kebutuhan
 - ESP8266 (NodeMCU)
-- IR LED + resistor
+- IR LED
 - Arduino IDE
-- Library: `IRremoteESP8266`, `NTPClient`, `ESP8266WiFi`, `WiFiUdp`
+- Library: `ESP8266WebServer`, `IRsend`, `WiFiClientSecure`,`ESP8266HTTPClient`, `NTPClient`, `ESP8266WiFi`, `WiFiUdp`, `Timelib`, `ArduinoJson`, `EEPROM`, `LittleFS`, 
 
 ## Cara Pakai
 1. Upload kode ke ESP8266
