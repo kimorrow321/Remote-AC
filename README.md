@@ -5,7 +5,7 @@
 Proyek ini mengontrol AC menggunakan ESP8266 dan IR Blaster, dengan antarmuka Web serta fitur timer otomatis berdasarkan waktu NTP.
 
 ## Fitur
-- Kontrol AC: ON/OFF, Suhu Naik/Turun, Timer jam & hari
+- Kontrol AC: ON/OFF, Suhu Naik/Turun, set timer jam, menit, hari
 - Akses via Web Browser
 - Timer otomatis, contoh: ON (17:00) & OFF (09:00)
 - Sinkronisasi waktu via NTP (GMT+7)
