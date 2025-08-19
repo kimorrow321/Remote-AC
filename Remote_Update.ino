@@ -501,6 +501,7 @@ updateClock();
 
 // Function Prototypes
 void saveTimerToEEPROM();
+void sendTimerNotification();
 void loadTimerFromEEPROM();
 const char* getDayName(int day);
 const char* getMonthName(int month);
@@ -539,11 +540,9 @@ void initEEPROM() {
     EEPROM.put(AC_STATE_ADDR, defaultState);
     EEPROM.put(TIMER_SETTINGS_ADDR, defaultTimer);
     EEPROM.write(EEPROM_SIZE-2, 0xAA); // Set signature
-    EEPROM.commit();
-
-    if (!EEPROM.commit()) {
-    Serial.println("EEPROM commit failed!");
-    }
+    
+    // Simpan tanpa kirim notifikasi (panggil tanpa parameter)
+    saveTimerToEEPROM(); // TANPA parameter false
   }
   
   EEPROM.end();
@@ -622,9 +621,6 @@ void loadACStateFromEEPROM() {
 }
 
 void saveTimerToEEPROM() {
-  static TimerSettings lastSettings;
-  static bool firstRun = true;
-  
   TimerSettings currentSettings;
   currentSettings.enableOnTimer = acTimer.enableOnTimer;
   currentSettings.enableOffTimer = acTimer.enableOffTimer;
@@ -634,50 +630,6 @@ void saveTimerToEEPROM() {
   currentSettings.offMinute = acTimer.offMinute;
   memcpy(currentSettings.daysActiveOn, acTimer.daysActiveOn, sizeof(acTimer.daysActiveOn));
   memcpy(currentSettings.daysActiveOff, acTimer.daysActiveOff, sizeof(acTimer.daysActiveOff));
-
-  // Hanya kirim notifikasi jika ada perubahan atau ini pertama kali
-  if (firstRun || memcmp(&currentSettings, &lastSettings, sizeof(TimerSettings)) != 0) {
-    firstRun = false;
-    lastSettings = currentSettings;
-    
-    String onDays = "";
-    bool firstOn = true;
-    for (int i = 1; i <= 7; i++) {
-      if (acTimer.daysActiveOn[i]) {
-        if (!firstOn) onDays += ", ";
-        onDays += getDayName(i);
-        firstOn = false;
-      }
-    }
-    if (onDays == "") onDays = "Tidak ada hari yang dipilih";
-
-    String offDays = "";
-    bool firstOff = true;
-    for (int i = 1; i <= 7; i++) {
-      if (acTimer.daysActiveOff[i]) {
-        if (!firstOff) offDays += ", ";
-        offDays += getDayName(i);
-        firstOff = false;
-      }
-    }
-    if (offDays == "") offDays = "Tidak ada hari yang dipilih";
-
-    String telegramMsg = "🕒 Timer AC diset:\n";
-    if (acTimer.enableOnTimer) {
-      telegramMsg += "⏰ Nyalakan Ac: " + getTimeString(acTimer.onHour, acTimer.onMinute) + "\n";
-      telegramMsg += "📅 Hari: " + onDays + "\n";
-    } else {
-      telegramMsg += "⏰ Timer nyala: Nonaktif\n";
-    }
-    if (acTimer.enableOffTimer) {
-      telegramMsg += "\n⏰ Matikan Ac: " + getTimeString(acTimer.offHour, acTimer.offMinute) + "\n";
-      telegramMsg += "📅 Hari: " + offDays + "\n";
-    } else {
-      telegramMsg += "\n⏰ Timer mati: Nonaktif\n";
-    }
-
-    sendTelegramMessage(telegramMsg);
-  }
 
   EEPROM.begin(EEPROM_SIZE);
   EEPROM.put(0, currentSettings);
@@ -776,6 +728,58 @@ String urlencode(String str) {
     }
   }
   return encoded;
+}
+
+void sendTimerNotification() {
+  static unsigned long lastSendTime = 0;
+  unsigned long currentTime = millis();
+  
+  // Cooldown 5 detik
+  if (currentTime - lastSendTime < 5000) {
+    Serial.println("Notifikasi ditunda (cooldown)");
+    return;
+  }
+  
+  lastSendTime = currentTime;
+
+  String onDays = "";
+  bool firstOn = true;
+  for (int i = 1; i <= 7; i++) {
+    if (acTimer.daysActiveOn[i]) {
+      if (!firstOn) onDays += ", ";
+      onDays += getDayName(i);
+      firstOn = false;
+    }
+  }
+  if (onDays == "") onDays = "Tidak ada hari yang dipilih";
+
+  String offDays = "";
+  bool firstOff = true;
+  for (int i = 1; i <= 7; i++) {
+    if (acTimer.daysActiveOff[i]) {
+      if (!firstOff) offDays += ", ";
+      offDays += getDayName(i);
+      firstOff = false;
+    }
+  }
+  if (offDays == "") offDays = "Tidak ada hari yang dipilih";
+
+  String telegramMsg = "🕒 Timer AC diset:\n";
+  if (acTimer.enableOnTimer) {
+    telegramMsg += "⏰ Nyalakan Ac: " + getTimeString(acTimer.onHour, acTimer.onMinute) + "\n";
+    telegramMsg += "📅 Hari: " + onDays + "\n";
+  } else {
+    telegramMsg += "⏰ Timer nyala: Nonaktif\n";
+  }
+  if (acTimer.enableOffTimer) {
+    telegramMsg += "\n⏰ Matikan Ac: " + getTimeString(acTimer.offHour, acTimer.offMinute) + "\n";
+    telegramMsg += "📅 Hari: " + offDays + "\n";
+  } else {
+    telegramMsg += "\n⏰ Timer mati: Nonaktif\n";
+  }
+
+  sendTelegramMessage(telegramMsg);
+  Serial.println("Notifikasi timer dikirim ke Telegram");
 }
 
 void sendTelegramMessage(String message) {
@@ -1225,41 +1229,96 @@ void handleTempAjax() {
 
 void handleSetTimer() {
   if (server.method() == HTTP_POST) {
+    Serial.println("HandleSetTimer dipanggil");
+    
+    // Simpan data form ke variabel sementara dulu
+    int tmpOnHour = acTimer.onHour;
+    int tmpOnMinute = acTimer.onMinute;
+    int tmpOffHour = acTimer.offHour;
+    int tmpOffMinute = acTimer.offMinute;
+    bool tmpEnableOn = acTimer.enableOnTimer;
+    bool tmpEnableOff = acTimer.enableOffTimer;
+    bool tmpDaysOn[8] = {false};
+    bool tmpDaysOff[8] = {false};
+    
+    // Backup setting lama
+    memcpy(tmpDaysOn, acTimer.daysActiveOn, sizeof(acTimer.daysActiveOn));
+    memcpy(tmpDaysOff, acTimer.daysActiveOff, sizeof(acTimer.daysActiveOff));
+
+    // Baca data dari form
     String onTime = server.arg("ontime");
     String offTime = server.arg("offtime");
 
     if (onTime.indexOf(":") != -1) {
-      acTimer.onHour = onTime.substring(0, onTime.indexOf(":")).toInt();
-      acTimer.onMinute = onTime.substring(onTime.indexOf(":")+1).toInt();
+      tmpOnHour = onTime.substring(0, onTime.indexOf(":")).toInt();
+      tmpOnMinute = onTime.substring(onTime.indexOf(":")+1).toInt();
     }
     if (offTime.indexOf(":") != -1) {
-      acTimer.offHour = offTime.substring(0, offTime.indexOf(":")).toInt();
-      acTimer.offMinute = offTime.substring(offTime.indexOf(":")+1).toInt();
+      tmpOffHour = offTime.substring(0, offTime.indexOf(":")).toInt();
+      tmpOffMinute = offTime.substring(offTime.indexOf(":")+1).toInt();
     }
 
-    acTimer.enableOnTimer = server.hasArg("enableon");
-    acTimer.enableOffTimer = server.hasArg("enableoff");
+    tmpEnableOn = server.hasArg("enableon");
+    tmpEnableOff = server.hasArg("enableoff");
 
+    // Reset hari aktif
     for (int i = 1; i <= 7; i++) {
-      acTimer.daysActiveOn[i] = false;
-      acTimer.daysActiveOff[i] = false;
+      tmpDaysOn[i] = false;
+      tmpDaysOff[i] = false;
     }
 
+    // Set hari aktif untuk timer ON
     for (int i = 1; i <= 7; i++) {
       if (server.hasArg("dayon" + String(i))) {
-        acTimer.daysActiveOn[i] = true;
+        tmpDaysOn[i] = true;
       }
     }
 
+    // Set hari aktif untuk timer OFF
     for (int i = 1; i <= 7; i++) {
       if (server.hasArg("dayoff" + String(i))) {
-        acTimer.daysActiveOff[i] = true;
+        tmpDaysOff[i] = true;
       }
     }
 
-    saveTimerToEEPROM();
+    // Update variabel global hanya JIKA ada perubahan
+    bool hasChanged = false;
+    if (acTimer.onHour != tmpOnHour || acTimer.onMinute != tmpOnMinute ||
+        acTimer.offHour != tmpOffHour || acTimer.offMinute != tmpOffMinute ||
+        acTimer.enableOnTimer != tmpEnableOn || acTimer.enableOffTimer != tmpEnableOff) {
+      hasChanged = true;
+    }
+    
+    for (int i = 1; i <= 7; i++) {
+      if (acTimer.daysActiveOn[i] != tmpDaysOn[i] || acTimer.daysActiveOff[i] != tmpDaysOff[i]) {
+        hasChanged = true;
+        break;
+      }
+    }
 
-    // Kirim response sesuai tipe request
+    if (hasChanged) {
+      // Update variabel global
+      acTimer.onHour = tmpOnHour;
+      acTimer.onMinute = tmpOnMinute;
+      acTimer.offHour = tmpOffHour;
+      acTimer.offMinute = tmpOffMinute;
+      acTimer.enableOnTimer = tmpEnableOn;
+      acTimer.enableOffTimer = tmpEnableOff;
+      memcpy(acTimer.daysActiveOn, tmpDaysOn, sizeof(tmpDaysOn));
+      memcpy(acTimer.daysActiveOff, tmpDaysOff, sizeof(tmpDaysOff));
+
+      // Simpan ke EEPROM
+      saveTimerToEEPROM();
+      
+      // Kirim notifikasi
+      sendTimerNotification();
+      
+      Serial.println("Timer berhasil diubah dan disimpan");
+    } else {
+      Serial.println("Tidak ada perubahan pada timer");
+    }
+
+    // Kirim response
     if (server.hasHeader("X-Requested-With") && server.header("X-Requested-With") == "XMLHttpRequest") {
       server.send(200, "text/plain", "OK");
     } else {
